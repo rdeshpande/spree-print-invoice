@@ -1,5 +1,32 @@
 require 'prawn/layout'
 
+def draw_order_total
+  totals = []
+
+  totals << [Prawn::Table::Cell.new( :text => "Subtotal:", :font_style => :bold), number_to_currency(@order.item_total)]
+
+  @order.charges.each do |charge|
+    totals << [Prawn::Table::Cell.new( :text => charge.description + ":", :font_style => :bold), number_to_currency(charge.amount)]
+  end
+  @order.credits.each do |credit|
+    totals << [Prawn::Table::Cell.new( :text => credit.description + ":", :font_style => :bold), number_to_currency(credit.amount)]
+  end
+
+  totals << [Prawn::Table::Cell.new( :text => "Order Total:", :font_style => :bold), number_to_currency(@order.total)]
+
+  bounding_box [bounds.right - 500, bounds.bottom + (totals.length * 15)], :width => 500 do
+    table totals,
+      :position => :right,
+      :border_width => 0,
+      :vertical_padding   => 2,
+      :horizontal_padding => 6,
+      :font_size => 9,
+      :column_widths => { 0 => 425, 1 => 75 } ,
+      :align => { 0 => :right, 1 => :right }
+
+  end
+end
+
 bill_address = @order.bill_address
 ship_address = @order.ship_address
 
@@ -71,6 +98,9 @@ end
 move_down 30
 
 # Line Items
+all_line_items = @order.line_items
+initial_line_items = all_line_items.shift(18)
+
 bounding_box [0,cursor], :width => 540, :height => 450 do
   move_down 2
   data =  [[Prawn::Table::Cell.new( :text => "SKU", :font_style => :bold),
@@ -95,7 +125,7 @@ bounding_box [0,cursor], :width => 540, :height => 450 do
   bounding_box [0,cursor], :width => 540 do
     move_down 2
     data2 = []
-    @order.line_items.each do |item|
+    initial_line_items.each do |item|
       data2 << [item.variant.product.sku,
                 item.variant.product.name,
                 number_to_currency(item.price),
@@ -116,41 +146,64 @@ bounding_box [0,cursor], :width => 540, :height => 450 do
 
   font "Helvetica", :size => 9
 
-  totals = []
-
-  totals << [Prawn::Table::Cell.new( :text => "Subtotal:", :font_style => :bold), number_to_currency(@order.item_total)]
-
-  @order.charges.each do |charge|
-    totals << [Prawn::Table::Cell.new( :text => charge.description + ":", :font_style => :bold), number_to_currency(charge.amount)]
-  end
-  @order.credits.each do |credit|
-    totals << [Prawn::Table::Cell.new( :text => credit.description + ":", :font_style => :bold), number_to_currency(credit.amount)]
-  end
-
-  totals << [Prawn::Table::Cell.new( :text => "Order Total:", :font_style => :bold), number_to_currency(@order.total)]
-
-  bounding_box [bounds.right - 500, bounds.bottom + (totals.length * 15)], :width => 500 do
-    table totals,
-      :position => :right,
-      :border_width => 0,
-      :vertical_padding   => 2,
-      :horizontal_padding => 6,
-      :font_size => 9,
-      :column_widths => { 0 => 425, 1 => 75 } ,
-      :align => { 0 => :right, 1 => :right }
-
-  end
+  draw_order_total if all_line_items.empty?
 
   move_down 2
+  stroke_bounds
+end
 
-  stroke do
-    line_width 0.5
-    line bounds.top_left, bounds.top_right
-    line bounds.top_left, bounds.bottom_left
-    line bounds.top_right, bounds.bottom_right
-    line bounds.bottom_left, bounds.bottom_right
+if !all_line_items.empty?
+  all_line_items.each_slice(18) do |line_items|
+    start_new_page
+    bounding_box [0,700], :width => 540, :height => 450 do
+      move_down 2
+      data =  [[Prawn::Table::Cell.new( :text => "SKU", :font_style => :bold),
+                    Prawn::Table::Cell.new( :text =>"Item Description", :font_style => :bold ),
+                   Prawn::Table::Cell.new( :text =>"Price", :font_style => :bold ),
+                   Prawn::Table::Cell.new( :text =>"Qty", :font_style => :bold, :align => 1 ),
+                   Prawn::Table::Cell.new( :text =>"Total", :font_style => :bold )]]
+
+      table data,
+        :position           => :center,
+        :border_width => 0,
+        :vertical_padding   => 2,
+        :horizontal_padding => 6,
+        :font_size => 9,
+        :column_widths => { 0 => 75, 1 => 290, 2 => 75, 3 => 50, 4 => 50 } ,
+        :align => { 0 => :left, 1 => :left, 2 => :right, 3 => :right, 4 => :right }
+
+      move_down 4
+      horizontal_rule
+      move_down 2
+
+      bounding_box [0,cursor], :width => 540 do
+        move_down 2
+        data2 = []
+        line_items.each do |item|
+          data2 << [item.variant.product.sku,
+                    item.variant.product.name,
+                    number_to_currency(item.price),
+                    item.quantity,
+                    number_to_currency(item.price * item.quantity)]
+        end
+
+
+        table data2,
+          :position           => :center,
+          :border_width => 0,
+          :vertical_padding   => 5,
+          :horizontal_padding => 6,
+          :font_size => 9,
+          :column_widths => { 0 => 75, 1 => 290, 2 => 75, 3 => 50, 4 => 50 },
+          :align => { 0 => :left, 1 => :left, 2 => :right, 3 => :right, 4 => :right }
+      end
+
+      draw_order_total if line_items.last == all_line_items.last
+
+      move_down 2
+      stroke_bounds
+    end
   end
-
 end
 
 # Footer
@@ -161,4 +214,8 @@ In order to return a product prior authorization with a RMA number is mandatory
 All returned items must be in original un-opened packaging with seal intact.
 EOS
   text_box footer_message, :at => [margin_box.left, margin_box.bottom + 30], :size => 8
+end
+
+repeat :all, :dynamic => true do
+  draw_text "Page Number: #{page_number}", :at => [475, 0]
 end
